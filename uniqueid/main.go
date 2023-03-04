@@ -2,8 +2,9 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
+
+	"github.com/google/uuid"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
@@ -31,11 +32,8 @@ func main() {
 	}
 }
 
-var x int
-
 func generateUniqueID() string {
-	x = x + 1
-	return fmt.Sprint(x)
+	return uuid.New().String()
 }
 
 type GenerateReq struct {
