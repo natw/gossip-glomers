@@ -1,30 +1,21 @@
 package main
 
 import (
-	"context"
 	"log"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
 func main() {
-	messageStore = make(map[int]bool)
-
 	n := maelstrom.NewNode()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	app := NewApp(n)
 
-	writec := make(chan int)
-	readc := make(chan chan []int)
-	topWritec := make(chan []string)
-	topReadc := make(chan chan []string)
-
-	go messageMgr(ctx, readc, writec)
-	go topologyMgr(ctx, topReadc, topWritec)
-
-	n.Handle("broadcast", broadcastHandler(n, writec, topReadc))
-	n.Handle("read", readHandler(n, readc))
-	n.Handle("topology", topologyHandler(n, topWritec))
+	n.Handle("broadcast", app.BroadcastHandler)
+	n.Handle("broadcast_ok", func(msg maelstrom.Message) error {
+		return nil
+	})
+	n.Handle("read", app.ReadHandler)
+	n.Handle("topology", app.TopologyHandler)
 
 	if err := n.Run(); err != nil {
 		log.Fatal(err)
@@ -32,8 +23,9 @@ func main() {
 }
 
 type BroadcastReq struct {
-	Type    string `json:"type"`
-	Message int    `json:"message"`
+	Type    string   `json:"type"`
+	SeenBy  []string `json:"seen_by"`
+	Message int      `json:"message"`
 }
 
 type OKResp struct {

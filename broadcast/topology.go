@@ -1,45 +1,35 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
-var neighbors []string
+func (a *App) TopologyHandler(msg maelstrom.Message) error {
+	var err error
 
-func topologyHandler(n *maelstrom.Node, topWritec chan<- []string) func(maelstrom.Message) error {
-	return func(msg maelstrom.Message) error {
-		var err error
-
-		var req TopologyReq
-		err = json.Unmarshal(msg.Body, &req)
-		if err != nil {
-			return err
-		}
-
-		topWritec <- req.Topology[n.ID()]
-
-		resp := OKResp{Type: "topology_ok"}
-		return n.Reply(msg, resp)
+	var req TopologyReq
+	err = json.Unmarshal(msg.Body, &req)
+	if err != nil {
+		return err
 	}
+
+	a.SetNeighbors(req.Topology[a.Node.ID()])
+
+	resp := OKResp{Type: "topology_ok"}
+	return a.Node.Reply(msg, resp)
+}
+
+func (a *App) SetNeighbors(nbrs []string) {
+	a.neighbors = nbrs
+}
+
+func (a *App) GetNeighbors() []string {
+	return a.neighbors
 }
 
 type TopologyReq struct {
 	Topology map[string][]string
 	Type     string
-}
-
-func topologyMgr(ctx context.Context, topWritec chan chan []string, topReadc <-chan []string) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case nbrs := <-topReadc:
-			neighbors = nbrs
-		case reqc := <-topWritec:
-			reqc <- neighbors
-		}
-	}
 }

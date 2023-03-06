@@ -1,10 +1,13 @@
 default: single
 
-single: broadcast
-	../maelstrom/maelstrom test -w broadcast --bin broadcast --node-count 1 --time-limit 20 --rate 10
+TESTER := ../maelstrom/maelstrom
+BIN := broadcast
 
-multi: broadcast
-	../maelstrom/maelstrom test -w broadcast --bin broadcast --node-count 1 --time-limit 20 --rate 10
+single: $(BIN)
+	$(TESTER) test -w broadcast --bin $(BIN) --node-count 1 --time-limit 20 --rate 10
 
-broadcast: *.go ../go.sum
+multi: $(BIN)
+	$(TESTER) test -w broadcast --bin $(BIN) --node-count 5 --time-limit 20 --rate 10
+
+$(BIN): *.go ../go.sum
 	go build .

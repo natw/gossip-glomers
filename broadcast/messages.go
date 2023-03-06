@@ -1,83 +1,77 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
-var messageStore map[int]bool
+func (a *App) BroadcastHandler(msg maelstrom.Message) error {
+	var err error
+	var req BroadcastReq
+	err = json.Unmarshal(msg.Body, &req)
+	if err != nil {
+		return err
+	}
 
-func messageMgr(ctx context.Context, readc <-chan chan []int, writec <-chan int) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case readrespc := <-readc:
-			keys := make([]int, len(messageStore))
-			i := 0
-			for msg := range messageStore {
-				keys[i] = msg
-				i++
+	a.AddMessage(req.Message)
+
+	go func(req BroadcastReq, nodeID string, src string) {
+		req.SeenBy = append(req.SeenBy, nodeID)
+		req.SeenBy = append(req.SeenBy, src)
+		seen := make(map[string]bool)
+		for _, n := range req.SeenBy {
+			seen[n] = true
+		}
+
+		nbrs := a.GetNeighbors()
+		for _, nbr := range nbrs {
+			if !seen[nbr] {
+				a.forwardBroadcast(nbr, req)
 			}
-			readrespc <- keys
-		case msg := <-writec:
-			messageStore[msg] = true
 		}
-	}
+	}(req, a.Node.ID(), msg.Src)
+
+	resp := OKResp{Type: "broadcast_ok"}
+	return a.Node.Reply(msg, resp)
 }
 
-func broadcastHandler(n *maelstrom.Node, writec chan int, topReadc chan chan []string) func(maelstrom.Message) error {
-	return func(msg maelstrom.Message) error {
-		var err error
-		var req BroadcastReq
-		err = json.Unmarshal(msg.Body, &req)
-		if err != nil {
-			return err
-		}
-
-		writec <- req.Message
-
-		go forwardBroadcast(n, req, topReadc)
-
-		resp := OKResp{Type: "broadcast_ok"}
-		return n.Reply(msg, resp)
-	}
+func (a *App) forwardBroadcast(dest string, req BroadcastReq) {
+	a.Logf("node '%s' forwarding broadcast of '%v' to '%s'", a.Node.ID(), req, dest)
+	_ = a.Node.Send(dest, req)
 }
 
-// send a Broadcast request on to every neighbor
-func forwardBroadcast(n *maelstrom.Node, req BroadcastReq, topReadc chan chan []string) {
-	nbrc := make(chan []string)
-	go func(nbrc chan []string) {
-		neighbors := <-nbrc
-		for _, nbr := range neighbors {
-			n.Send(nbr, req)
-		}
-	}(nbrc)
-	topReadc <- nbrc
+func (a *App) ReadHandler(msg maelstrom.Message) error {
+	var err error
+
+	var req ReadReq
+	err = json.Unmarshal(msg.Body, &req)
+	if err != nil {
+		return err
+	}
+
+	resp := ReadResp{
+		Type:     "read_ok",
+		Messages: a.GetMessages(),
+	}
+	return a.Node.Reply(msg, resp)
 }
 
-func readHandler(n *maelstrom.Node, readc chan chan []int) func(maelstrom.Message) error {
-	return func(msg maelstrom.Message) error {
-		var err error
+func (a *App) GetMessages() []int {
+	a.neighborLock.Lock()
+	defer a.neighborLock.Unlock()
 
-		var req ReadReq
-		err = json.Unmarshal(msg.Body, &req)
-		if err != nil {
-			return err
-		}
-
-		mc := make(chan []int, 1)
-
-		readc <- mc
-
-		msgs := <-mc
-
-		resp := ReadResp{
-			Type:     "read_ok",
-			Messages: msgs,
-		}
-		return n.Reply(msg, resp)
+	keys := make([]int, len(a.messages))
+	i := 0
+	for msg := range a.messages {
+		keys[i] = msg
+		i++
 	}
+	return keys
+}
+
+func (a *App) AddMessage(msg int) {
+	a.msgLock.Lock()
+	defer a.msgLock.Unlock()
+	a.messages[msg] = true
 }
